@@ -183,11 +183,9 @@ fn cpath(p: &Path) -> CString { cstr(&p.to_string_lossy()) }
 #[derive(Debug, Clone)]
 pub struct Gguf { pub weights: PathBuf, pub projector: Option<PathBuf> }
 
-/// The model's answer about the picture at `image`, from the model loaded on `device`.
-pub fn describe_gguf(model: &Gguf, device: &str, image: &Path, system: &str, question: &str, max_tokens: i32) -> AiResult<String> {
-    let l = llama().ok_or_else(|| AiError::new(Kind::NoGpu))?;
+/// The model on `device`, loaded unless it is there already.
+fn ensure_loaded(l: &Llama, g: &mut State, model: &Gguf, device: &str) -> AiResult<()> {
     let key = format!("{device}\n{}\n{}", model.weights.display(), model.projector.as_deref().map(|p| p.display().to_string()).unwrap_or_default());
-    let mut g = state().lock().unwrap_or_else(|e| e.into_inner());
     if g.loaded.as_ref().map(|m| &m.key) != Some(&key) {
         if let Some(m) = g.loaded.take() { unsafe { (l.unload)(m.handle) }; }
         let (w, p, d) = (cpath(&model.weights), model.projector.as_deref().map(cpath), cstr(device));
@@ -199,6 +197,23 @@ pub fn describe_gguf(model: &Gguf, device: &str, image: &Path, system: &str, que
         }
         g.loaded = Some(Loaded { key, handle });
     }
+    Ok(())
+}
+
+/// Loads the model on `device` now, so that the GPU trial can time the answer alone.
+pub fn load_gguf(model: &Gguf, device: &str) -> AiResult<()> {
+    let l = llama().ok_or_else(|| AiError::new(Kind::NoGpu))?;
+    let mut g = state().lock().unwrap_or_else(|e| e.into_inner());
+    let r = ensure_loaded(l, &mut g, model, device);
+    g.last_used = Instant::now();
+    r
+}
+
+/// The model's answer about the picture at `image`, from the model loaded on `device`.
+pub fn describe_gguf(model: &Gguf, device: &str, image: &Path, system: &str, question: &str, max_tokens: i32) -> AiResult<String> {
+    let l = llama().ok_or_else(|| AiError::new(Kind::NoGpu))?;
+    let mut g = state().lock().unwrap_or_else(|e| e.into_inner());
+    ensure_loaded(l, &mut g, model, device)?;
     let handle = g.loaded.as_ref().map(|m| m.handle).unwrap_or(std::ptr::null_mut());
     let (i, s, q) = (cpath(image), cstr(system), cstr(question));
     let mut err: *mut c_char = std::ptr::null_mut();
