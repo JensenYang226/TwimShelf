@@ -9,6 +9,13 @@ permissions:
 env:
   TL_UPDATE_REPO: ${{ github.repository }}
 jobs:
+  unit:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup toolchain install
+      - name: Unit tests of the GPU choice
+        run: cargo test -p tl-core --lib ai::devices
   windows:
     # x64 only in CI (build.ps1 builds for the architecture it runs on)
     strategy:
@@ -51,8 +58,6 @@ jobs:
           cuda: '12.9.1'
           method: network
           sub-packages: '["nvcc", "cudart", "cublas", "cublas_dev", "visual_studio_integration"]'
-      - name: Unit tests of the GPU choice
-        run: cargo test -p tl-core --lib ai::devices
       - name: Build
         env:
           TL_REQUIRE_CUDA: ${{ matrix.arch == 'x64' && '1' || '' }}
