@@ -14,7 +14,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        ref: [fix/local-reply-complete, fix/llama-sampling-loops, fix/ai-vocabulary-own-tags, fix/zh-hans-prompt-simplified, ci/verify-cuda-fp32, ci/verify-all]
+        ref: [fix/local-reply-complete, fix/llama-sampling-loops, ci/pr9-cache, fix/zh-hans-prompt-simplified, ci/verify-cuda-fp32, ci/verify-all]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
