@@ -1,0 +1,22 @@
+# Verification only (not for a PR): core tests of each PR branch (with the commits #9 and #11 are
+# to get) and of all five merged together.
+name: Verify PRs (core tests)
+on:
+  push:
+    branches: [ci/verify-final]
+permissions:
+  contents: read
+jobs:
+  unit:
+    strategy:
+      fail-fast: false
+      matrix:
+        ref: [fix/local-reply-complete, fix/llama-sampling-loops, ci/pr9-cache, fix/zh-hans-prompt-simplified, ci/pr11-final, ci/verify-final]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ matrix.ref }}
+      - run: rustup toolchain install
+      - name: Core tests
+        run: cargo test -p tl-core --locked
