@@ -145,6 +145,17 @@ fn local_gguf(models_dir: &Path, model: &engine::Gguf, bytes: u64, image: &Path,
     let mut first_error = None;
     for d in &gpus {
         if d.total > 0 && d.total < need { trials.push((d.name.clone(), None)); continue; }
+        // timed from the model on the GPU to usable tags: reading the model file is no measure of
+        // the GPU, and the first GPU tried would pay for a file not yet in the system's cache
+        // (measured: 6.5 s instead of 3.7 s, enough to lose CUDA to Vulkan); a chosen GPU keeps
+        // the model loaded while it tags
+        cancel.check()?;
+        if let Err(e) = engine::load_gguf(model, &d.name) {
+            eprintln!("local ai: {} ({}) failed to load: {e}", d.name, d.description);
+            trials.push((d.name.clone(), None));
+            first_error.get_or_insert(e);
+            continue;
+        }
         let t = Instant::now();
         match run(&d.name) {
             Ok(tags) => {
