@@ -51,6 +51,8 @@ jobs:
           cuda: '12.9.1'
           method: network
           sub-packages: '["nvcc", "cudart", "cublas", "cublas_dev", "visual_studio_integration"]'
+      - name: Unit tests of the GPU choice
+        run: cargo test -p tl-core --lib ai::devices
       - name: Build
         env:
           TL_REQUIRE_CUDA: ${{ matrix.arch == 'x64' && '1' || '' }}
