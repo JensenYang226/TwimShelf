@@ -1,0 +1,84 @@
+# Verification only (not for a PR): PRs #7-#11 merged together; core tests per PR and merged,
+# and the Windows x64 app with CUDA from the merged code
+# and keep the installed program folder, so its tl_llama.dll can be tested on an NVIDIA machine.
+name: Verify all five PRs
+on:
+  push:
+    branches: [ci/verify-all]
+permissions:
+  contents: read
+env:
+  TL_UPDATE_REPO: ${{ github.repository }}
+jobs:
+  unit:
+    strategy:
+      fail-fast: false
+      matrix:
+        ref: [fix/local-reply-complete, fix/llama-sampling-loops, fix/ai-vocabulary-own-tags, fix/zh-hans-prompt-simplified, ci/verify-cuda-fp32, ci/verify-all]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ matrix.ref }}
+      - run: rustup toolchain install
+      - name: Core tests
+        run: cargo test -p tl-core --locked
+  windows:
+    # x64 only in CI (build.ps1 builds for the architecture it runs on)
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: windows-2025
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - run: git config --system core.longpaths true
+      - uses: actions/checkout@v4
+      - run: rustup toolchain install   # the one in rust-toolchain.toml
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json   # the pinned .NET SDK
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.nuget/packages
+          key: deps-windows-${{ matrix.arch }}-${{ hashFiles('Cargo.lock', 'windows/TwimShelf/TwimShelf.csproj') }}
+          restore-keys: deps-windows-${{ matrix.arch }}-
+      - name: Vulkan SDK (GPU support for on-device AI; none on ARM64, which has no on-device AI)
+        if: matrix.arch == 'x64'
+        run: |
+          Invoke-WebRequest https://sdk.lunarg.com/sdk/download/latest/windows/vulkan_sdk.exe -OutFile "$env:RUNNER_TEMP\vulkan_sdk.exe"
+          Start-Process "$env:RUNNER_TEMP\vulkan_sdk.exe" -Wait -ArgumentList '--root','C:\VulkanSDK','--accept-licenses','--default-answer','--confirm-command','install'
+          "VULKAN_SDK=C:\VulkanSDK" >> $env:GITHUB_ENV
+          "C:\VulkanSDK\Bin" >> $env:GITHUB_PATH
+      # NVIDIA's CUDA (x64; no CUDA for Windows on ARM): its runtime and cuBLAS go into the app
+      - name: CUDA toolkit
+        if: matrix.arch == 'x64'
+        uses: Jimver/cuda-toolkit@v0.2.36
+        with:
+          cuda: '12.9.1'
+          method: network
+          sub-packages: '["nvcc", "cudart", "cublas", "cublas_dev", "visual_studio_integration"]'
+      - name: Build
+        env:
+          TL_REQUIRE_CUDA: ${{ matrix.arch == 'x64' && '1' || '' }}
+        run: powershell -ExecutionPolicy Bypass -File build.ps1 -Yes windows
+      - name: Install quietly and keep the program folder
+        shell: pwsh
+        run: |
+          $setup = (Get-ChildItem build/apps/TwimShelf-*-windows-x64-setup.exe | Select-Object -First 1).FullName
+          $p = Start-Process $setup -ArgumentList '--quiet' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "setup failed ($($p.ExitCode))" }
+          Get-ChildItem "$env:LOCALAPPDATA\Programs\TwimShelf" -Filter *.dll | Select-Object Name,Length
+      - uses: actions/upload-artifact@v4
+        with:
+          name: program-all-x64
+          path: ~/AppData/Local/Programs/TwimShelf/
+          if-no-files-found: error
+          retention-days: 7
